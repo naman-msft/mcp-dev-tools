@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-dev-tools
+  namespace: mcp-system
+  labels:
+    app: mcp-dev-tools
+spec:
+  type: ClusterIP
+  selector:
+    app: mcp-dev-tools
+  ports:
+  - name: health
+    port: 8080
+    targetPort: health
+    protocol: TCP

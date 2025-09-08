@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mcp-config
+  namespace: mcp-system
+data:
+  MCP_SERVER_NAME: "dev-tools-production"
+  LOG_LEVEL: "info"
+  WORKSPACE_PATH: "/workspace"
+  HEALTH_PORT: "8080"
