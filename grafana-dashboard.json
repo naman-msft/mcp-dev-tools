@@ -1,0 +1,23 @@
+{
+  "dashboard": {
+    "title": "MCP Server Metrics",
+    "panels": [
+      {
+        "title": "Tool Calls Rate",
+        "targets": [
+          {
+            "expr": "rate(mcp_tool_calls_total[5m])"
+          }
+        ]
+      },
+      {
+        "title": "Tool Duration",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(mcp_tool_duration_seconds_bucket[5m]))"
+          }
+        ]
+      }
+    ]
+  }
+}

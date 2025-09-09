@@ -1,0 +1,15 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: mcp-dev-tools
+  namespace: mcp-system
+  labels:
+    app: mcp-dev-tools
+spec:
+  selector:
+    matchLabels:
+      app: mcp-dev-tools
+  endpoints:
+  - port: health
+    interval: 30s
+    path: /metrics

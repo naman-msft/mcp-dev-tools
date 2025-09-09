@@ -1,0 +1,26 @@
+# k8s/ingress-tls-test.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mcp-dev-tools-tls
+  namespace: mcp-system
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-staging"
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"  # Changed to false for testing
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - 20.185.42.101.nip.io  # Replace with YOUR-IP.nip.io
+    secretName: mcp-dev-tools-tls
+  rules:
+  - host: 20.185.42.101.nip.io  # Replace with YOUR-IP.nip.io
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: mcp-dev-tools
+            port:
+              number: 8080
