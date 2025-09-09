@@ -29,6 +29,9 @@ spec:
         envFrom:
         - configMapRef:
             name: mcp-config
+        env:  # ADD THIS SECTION HERE
+        - name: MCP_MODE
+          value: "http"  # Force HTTP bridge mode in Kubernetes
         ports:
         - name: health
           containerPort: 8080

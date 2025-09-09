@@ -8,7 +8,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any
 from http.server import HTTPServer, BaseHTTPRequestHandler
-
+from aiohttp import web
+from metrics import track_metrics
+    
 # MCP imports - make them optional for now
 try:
     from mcp.server import Server, NotificationOptions
@@ -129,6 +131,7 @@ if MCP_AVAILABLE and app:
         return [types.TextContent(type="text", text=str(result))]
 
 # Tool implementations
+@track_metrics("execute_command")
 async def execute_command(command: str, working_dir: Optional[str] = None) -> str:
     """Execute a shell command and return the output."""
     try:
@@ -199,42 +202,118 @@ async def system_info() -> str:
     }
     return json.dumps(info, indent=2)
 
+# HTTP-to-stdio bridge for remote MCP access
+async def http_to_stdio_bridge(request):
+    """Convert HTTP requests to stdio MCP calls"""
+    try:
+        json_rpc = await request.json()
+        
+        # Forward to MCP server via stdio
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable, '-m', 'src.server',
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env={**os.environ, 'MCP_MODE': 'stdio'}  # Force stdio mode
+        )
+        
+        # Send JSON-RPC to stdin
+        proc.stdin.write(json.dumps(json_rpc).encode() + b'\n')
+        await proc.stdin.drain()
+        proc.stdin.close()
+        
+        # Read response from stdout (with timeout)
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(), 
+                timeout=30.0
+            )
+            
+            if stderr and LOG_LEVEL == "debug":
+                print(f"Bridge stderr: {stderr.decode()}", file=sys.stderr)
+            
+            # Parse response
+            response = json.loads(stdout.decode())
+            return web.json_response(response)
+            
+        except asyncio.TimeoutError:
+            proc.kill()
+            return web.json_response(
+                {"error": "MCP request timeout"},
+                status=504
+            )
+            
+    except json.JSONDecodeError as e:
+        return web.json_response(
+            {"error": f"Invalid JSON: {str(e)}"},
+            status=400
+        )
+    except Exception as e:
+        print(f"Bridge error: {e}", file=sys.stderr)
+        return web.json_response(
+            {"error": f"Bridge error: {str(e)}"},
+            status=500
+        )
+
+async def start_http_bridge():
+    """Start HTTP-to-stdio bridge server"""
+    app = web.Application()
+    app.router.add_post('/mcp', http_to_stdio_bridge)
+    app.router.add_get('/health', lambda r: web.Response(text="OK"))
+    
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', HEALTH_PORT)
+    
+    print(f"HTTP-to-stdio bridge listening on 0.0.0.0:{HEALTH_PORT}/mcp", file=sys.stderr)
+    await site.start()
+    
+    # Keep running forever
+    while True:
+        await asyncio.sleep(3600)
+
 # Main async function
 async def run_server():
     """Run the server with health check and optional MCP."""
-    # Start health server in background thread
-    health_thread = threading.Thread(target=start_health_server, daemon=True)
-    health_thread.start()
     
-    print(f"Server '{SERVER_NAME}' starting (MCP: {MCP_AVAILABLE})...", file=sys.stderr)
+    # Check if we're in stdio mode (direct MCP) or HTTP bridge mode
+    mcp_mode = os.getenv("MCP_MODE", "auto")
     
-    if MCP_AVAILABLE and app and sys.stdin.isatty():
-        # If we have a TTY (interactive mode), run MCP server
-        try:
-            async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
-                print(f"MCP Server running with stdio transport", file=sys.stderr)
-                await app.run(
-                    read_stream,
-                    write_stream,
-                    InitializationOptions(
-                        server_name=SERVER_NAME,
-                        server_version="1.0.0",
-                        capabilities=app.get_capabilities(
-                            notification_options=NotificationOptions(),
-                            experimental_capabilities={},
+    if mcp_mode == "stdio" or (mcp_mode == "auto" and sys.stdin.isatty()):
+        # Direct stdio mode for MCP
+        if MCP_AVAILABLE and app:
+            try:
+                async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
+                    print(f"MCP Server running with stdio transport", file=sys.stderr)
+                    await app.run(
+                        read_stream,
+                        write_stream,
+                        InitializationOptions(
+                            server_name=SERVER_NAME,
+                            server_version="1.0.0",
+                            capabilities=app.get_capabilities(
+                                notification_options=NotificationOptions(),
+                                experimental_capabilities={},
+                            )
                         )
                     )
-                )
-        except Exception as e:
-            print(f"MCP server error: {e}", file=sys.stderr)
+            except Exception as e:
+                print(f"MCP server error: {e}", file=sys.stderr)
+        else:
+            print("MCP not available or no app initialized", file=sys.stderr)
+    
+    elif mcp_mode == "http" or (mcp_mode == "auto" and not sys.stdin.isatty()):
+        # HTTP bridge mode (for Kubernetes)
+        print(f"Starting HTTP-to-stdio bridge mode", file=sys.stderr)
+        await start_http_bridge()
+    
     else:
-        # In Kubernetes or non-TTY mode, just keep health server running
-        print(f"Running in health-check only mode (no TTY detected)", file=sys.stderr)
-        # Keep the process alive
+        # Fallback: just run health server
+        health_thread = threading.Thread(target=start_health_server, daemon=True)
+        health_thread.start()
+        print(f"Running in health-check only mode", file=sys.stderr)
         while True:
             await asyncio.sleep(60)
-            if LOG_LEVEL == "debug":
-                print(f"Health check server still running on port {HEALTH_PORT}", file=sys.stderr)
 
 # Entry point
 if __name__ == "__main__":

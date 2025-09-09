@@ -940,6 +940,17 @@ kubectl get pods -n mcp-system
 kubectl logs -n mcp-system -l app=mcp-dev-tools --tail=50
 ```
 
+### Step 7: Verify HTTP bridge is working
+
+```bash
+# Port-forward to test
+kubectl port-forward -n mcp-system svc/mcp-dev-tools 8080:8080
+
+# Test HTTP endpoint (not just health check)
+curl -X POST http://localhost:8080/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'
+```
 
 ## Module 6: Add Authentication and Authorization
 
@@ -1339,7 +1350,11 @@ kubectl apply -f k8s/servicemonitor.yaml
 
 # Check metrics endpoint
 kubectl port-forward -n mcp-system svc/mcp-dev-tools 8080:8080
-curl http://localhost:8080/metrics
+
+# Test HTTP endpoint
+curl -X POST http://localhost:8080/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'
 ```
 
 ## Module 9: Set up secure access with port forwarding
@@ -1408,19 +1423,8 @@ For **VS Code**:
 {
   "servers": {
     "dev-tools": {
-      "command": "kubectl",
-      "args": [
-        "exec",
-        "-n", "mcp-system",
-        "-i",
-        "deployment/mcp-dev-tools",
-        "--",
-        "python", "-m", "src.server"
-      ],
-      "env": {
-        "MCP_SERVER_NAME": "dev-tools",
-        "LOG_LEVEL": "info"
-      }
+      "url": "http://mcp-service.mcp-system.svc.cluster.local:8080/mcp",
+      "transport": "http"
     }
   }
 }
@@ -1431,19 +1435,11 @@ For **VS Code**:
 For Claude Desktop app integration:
 
 ````json
-# filepath: %APPDATA%\Claude\config.json (Windows)
 {
-  "mcpServers": {
+  "servers": {
     "dev-tools": {
-      "command": "kubectl",
-      "args": [
-        "exec",
-        "-n", "mcp-system",
-        "-i",
-        "deployment/mcp-dev-tools",
-        "--",
-        "python", "-m", "src.server"
-      ]
+      "url": "http://localhost:8080/mcp",  // After port-forward
+      "transport": "http"
     }
   }
 }
@@ -1743,9 +1739,10 @@ kubectl config delete-context $AKS_NAME
 
 Congratulations! You've successfully:
 
-✅ Built a functional MCP server with practical development tools  
+✅ Built a functional MCP server with practical development tools 
+✅ Created HTTP-to-stdio bridge for universal access  
 ✅ Containerized the server with Docker  
-✅ Deployed it to Azure Kubernetes Service  
+✅ Deployed to AKS with health checks and monitoring  
 ✅ Set up CI/CD pipeline with GitHub Actions  
 ✅ Implemented authentication with Azure AD 
 ✅ Configured TLS/SSL with automatic certificates  
