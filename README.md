@@ -171,19 +171,21 @@ The Model Context Protocol (MCP) is an open protocol that standardizes how AI as
 
 ## Module 2: Create a practical MCP server
 
-<!-- 🚨 BURDEN: Building an MCP server requires understanding:
-     - MCP protocol specifics (not just REST APIs)
-     - Stdio communication patterns (completely different from HTTP)
-     - Async Python programming
-     - Signal handling for graceful shutdown
-     - Health check implementation separate from MCP protocol
-     
-     Common failures:
-     - stdio buffering issues cause silent failures
-     - Missing health endpoint breaks K8s deployment
-     - Incorrect async handling causes tool timeouts
-     - No error handling for tool failures
--->
+### Development complexity
+
+BURDEN: Building an MCP server requires understanding:
+  - MCP protocol specifics (not just REST APIs)
+  - Stdio communication patterns (completely different from HTTP)
+  - Async Python programming
+  - Signal handling for graceful shutdown
+  - Health check implementation separate from MCP protocol
+  
+Common failures:
+- stdio buffering issues cause silent failures
+- Missing health endpoint breaks K8s deployment
+- Incorrect async handling causes tool timeouts
+- No error handling for tool failures
+
 
 Let's build an MCP server that provides useful tools for development tasks.
 
@@ -216,6 +218,7 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 import http.server
 import socketserver
+from aiohttp import web
 
 # MCP imports
 try:
@@ -540,19 +543,20 @@ CMD ["python", "-m", "src.server"]
 
 ## Module 3: Deploy to Azure Kubernetes Service
 
-<!-- 🚨 BURDEN: This module requires coordinating multiple Azure services:
-     - Resource Group creation and management
-     - ACR setup with specific SKU requirements
-     - AKS cluster with correct node size (B2s minimum for MCP)
-     - Managed identity configuration
-     - ACR-AKS attachment (fails silently if permissions wrong)
-     
-     Failure rates from testing:
-     - ACR name conflicts: Happens frequently (must be globally unique)
-     - AKS creation timeout: Can take 15+ minutes, often times out
-     - Credential propagation: Takes up to 10 minutes, causes mysterious failures
-     - Wrong region selection: Some regions don't support all features
--->
+### Deployment complexity
+BURDEN: This module requires coordinating multiple Azure services:
+  - Resource Group creation and management
+  - ACR setup with specific SKU requirements
+  - AKS cluster with correct node size (B2s minimum for MCP)
+  - Managed identity configuration
+  - ACR-AKS attachment (fails silently if permissions wrong)
+  
+Failure rates from testing:
+  - ACR name conflicts: Happens frequently (must be globally unique)
+  - AKS creation timeout: Can take 15+ minutes, often times out
+  - Credential propagation: Takes up to 10 minutes, causes mysterious failures
+  - Wrong region selection: Some regions don't support all features
+
 
 ### Step 1: Set up Azure resources
 
@@ -645,18 +649,20 @@ az acr repository show \
 
 ## Module 4: Set up CI/CD Pipeline
 
-<!-- 🚨 BURDEN: CI/CD for MCP has unique challenges:
-     - Service principal needs exact RBAC roles (Contributor isn't enough)
-     - GitHub secrets must be formatted exactly right (JSON parsing is fragile)
-     - Image tagging strategy must handle multiple transports
-     - Deployment verification needs custom health checks
-     
-     What goes wrong:
-     - Service principal expires after 90 days (production outage)
-     - GitHub Actions runners have different Docker versions
-     - ACR login tokens expire mid-deployment
-     - No automatic rollback on MCP protocol errors
--->
+### Deployment complexity
+
+BURDEN: CI/CD for MCP has unique challenges:
+  - Service principal needs exact RBAC roles (Contributor isn't enough)
+  - GitHub secrets must be formatted exactly right (JSON parsing is fragile)
+  - Image tagging strategy must handle multiple transports
+  - Deployment verification needs custom health checks
+  
+What goes wrong:
+  - Service principal expires after 90 days (production outage)
+  - GitHub Actions runners have different Docker versions
+  - ACR login tokens expire mid-deployment
+  - No automatic rollback on MCP protocol errors
+
 
 ### Step 1: Create GitHub secrets
 
@@ -747,19 +753,21 @@ git push origin main
 
 ## Module 5: Configure Kubernetes deployment
 
-<!-- 🚨 BURDEN: K8s manifests for MCP are more complex than normal apps:
-     - Need 7 different YAML files vs 2-3 for normal apps
-     - ConfigMaps must handle multiple transport configurations
-     - Health probes require custom endpoints (MCP doesn't support HTTP natively)
-     - Resource limits are tricky (stdio uses more memory than expected)
-     - Volume mounts needed for workspace access
-     
-     YAML hell examples:
-     - Indentation error = pods stuck in Pending forever
-     - Wrong label selector = deployments never ready
-     - Missing namespace = resources created in default
-     - Typo in image name = ImagePullBackOff loops
--->
+### Deployment complexity
+
+BURDEN: K8s manifests for MCP are more complex than normal apps:
+  - Need 7 different YAML files vs 2-3 for normal apps
+  - ConfigMaps must handle multiple transport configurations
+  - Health probes require custom endpoints (MCP doesn't support HTTP natively)
+  - Resource limits are tricky (stdio uses more memory than expected)
+  - Volume mounts needed for workspace access
+  
+YAML hell examples:
+  - Indentation error = pods stuck in Pending forever
+  - Wrong label selector = deployments never ready
+  - Missing namespace = resources created in default
+  - Typo in image name = ImagePullBackOff loops
+
 
 ### Step 1: Create namespace and configuration
 
@@ -935,19 +943,21 @@ kubectl logs -n mcp-system -l app=mcp-dev-tools --tail=50
 
 ## Module 6: Add Authentication and Authorization
 
-<!-- 🚨 BURDEN: Auth for MCP is exponentially complex:
-     - Each transport needs different auth mechanism
-     - Azure AD setup requires 5+ manual steps
-     - Token validation needs JWKS endpoint configuration
-     - Service principals expire without warning
-     - No built-in auth in MCP protocol
-     
-     Real issues encountered:
-     - Azure AD app registration requires admin consent
-     - Token audience validation fails with cryptic errors
-     - CORS issues with browser-based clients
-     - Token refresh logic must be implemented manually
--->
+### Deployment complexity
+
+BURDEN: Auth for MCP is exponentially complex:
+  - Each transport needs different auth mechanism
+  - Azure AD setup requires 5+ manual steps
+  - Token validation needs JWKS endpoint configuration
+  - Service principals expire without warning
+  - No built-in auth in MCP protocol
+  
+Real issues encountered:
+  - Azure AD app registration requires admin consent
+  - Token audience validation fails with cryptic errors
+  - CORS issues with browser-based clients
+  - Token refresh logic must be implemented manually
+
 
 ### Step 1: Register Azure AD application
 
@@ -1052,18 +1062,20 @@ spec:
 
 ## Module 7: Configure TLS/SSL with Ingress
 
-<!-- 🚨 BURDEN: TLS setup for MCP has unique requirements:
-     - WebSocket support needs special nginx annotations
-     - Cert-manager webhooks fail in private clusters
-     - Let's Encrypt rate limits hit quickly during testing
-     - Certificate renewal automation often breaks
-     
-     Hidden complexities:
-     - DNS propagation takes 10-30 minutes
-     - HTTP-01 challenge fails behind corporate proxies
-     - Wildcard certs require DNS-01 (more complex)
-     - Certificate chain issues with certain clients
--->
+### Deployment complexity
+
+BURDEN: TLS setup for MCP has unique requirements:
+  - WebSocket support needs special nginx annotations
+  - Cert-manager webhooks fail in private clusters
+  - Let's Encrypt rate limits hit quickly during testing
+  - Certificate renewal automation often breaks
+  
+Hidden complexities:
+  - DNS propagation takes 10-30 minutes
+  - HTTP-01 challenge fails behind corporate proxies
+  - Wildcard certs require DNS-01 (more complex)
+  - Certificate chain issues with certain clients
+
 
 ### Step 1: Install cert-manager
 
@@ -1179,18 +1191,20 @@ kubectl get ingress -n mcp-system mcp-dev-tools-tls
 
 ## Module 8: Add Observability
 
-<!-- 🚨 BURDEN: Monitoring MCP requires custom instrumentation:
-     - No standard metrics for MCP protocol
-     - Must instrument each tool separately
-     - Prometheus scraping needs ServiceMonitor CRDs
-     - Grafana dashboards must be built from scratch
-     
-     Observability gaps:
-     - stdio communication is hard to trace
-     - No correlation IDs across transports
-     - Tool execution spans need manual implementation
-     - Memory leaks hard to detect with stdio
--->
+### Deployment complexity
+
+BURDEN: Monitoring MCP requires custom instrumentation:
+  - No standard metrics for MCP protocol
+  - Must instrument each tool separately
+  - Prometheus scraping needs ServiceMonitor CRDs
+  - Grafana dashboards must be built from scratch
+  
+Observability gaps:
+  - stdio communication is hard to trace
+  - No correlation IDs across transports
+  - Tool execution spans need manual implementation
+  - Memory leaks hard to detect with stdio
+
 
 ### Step 1: Install Prometheus and Grafana
 
@@ -1330,17 +1344,18 @@ curl http://localhost:8080/metrics
 
 ## Module 9: Set up secure access with port forwarding
 
-<!-- 🚨 BURDEN: Access patterns for MCP are non-standard:
-     - Port-forward drops every 5 minutes (kubectl limitation)
-     - No automatic reconnection on failure
-     - Multiple ports needed for different transports
-     - IDE integration expects stable endpoints
-     
-     Workarounds needed:
-     - Wrapper scripts to auto-restart port-forward
-     - Multiple terminal windows for different services
-     - Manual endpoint updates after each restart
--->
+### Deployment complexity
+BURDEN: Access patterns for MCP are non-standard:
+  - Port-forward drops every 5 minutes (kubectl limitation)
+  - No automatic reconnection on failure
+  - Multiple ports needed for different transports
+  - IDE integration expects stable endpoints
+  
+Workarounds needed:
+  - Wrapper scripts to auto-restart port-forward
+  - Multiple terminal windows for different services
+  - Manual endpoint updates after each restart
+
 
 For development and testing, we'll use kubectl port-forward. For production, use ingress or Azure Application Gateway.
 
@@ -1559,18 +1574,19 @@ kubectl describe pod -n mcp-system -l app=mcp-dev-tools
 
 ## Module 12: Queue-based Autoscaling with KEDA
 
-<!-- 🚨 BURDEN: Autoscaling MCP has unique challenges:
-     - Long-lived connections don't scale like HTTP
-     - KEDA requires Service Bus (additional cost)
-     - Queue depth doesn't correlate with MCP load
-     - Scale-to-zero breaks active connections
-     
-     Scaling issues:
-     - Connection state lost during scale events
-     - No graceful handoff between pods
-     - Queue messages can be lost during scaling
-     - Cost multiplies with each replica
--->
+### Deployment complexity
+BURDEN: Autoscaling MCP has unique challenges:
+  - Long-lived connections don't scale like HTTP
+  - KEDA requires Service Bus (additional cost)
+  - Queue depth doesn't correlate with MCP load
+  - Scale-to-zero breaks active connections
+  
+Scaling issues:
+  - Connection state lost during scale events
+  - No graceful handoff between pods
+  - Queue messages can be lost during scaling
+  - Cost multiplies with each replica
+
 
 ### Step 1: Install KEDA
 
@@ -1658,148 +1674,22 @@ kubectl get scaledobject -n mcp-system
 kubectl get hpa -n mcp-system -w
 ```
 
-## Module 13: Production considerations
-
-### Security best practices
-
-1. **Network policies**: Restrict pod-to-pod communication
-
-````yaml
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: mcp-dev-tools-netpol
-  namespace: mcp-system
-spec:
-  podSelector:
-    matchLabels:
-      app: mcp-dev-tools
-  policyTypes:
-  - Ingress
-  - Egress
-  ingress:
-  - from:
-    - namespaceSelector:
-        matchLabels:
-          name: mcp-system
-    ports:
-    - protocol: TCP
-      port: 8080
-  egress:
-  - to:
-    - namespaceSelector: {}
-    ports:
-    - protocol: TCP
-      port: 443
-    - protocol: TCP
-      port: 80
-````
-
-2. **RBAC**: Limit service account permissions
-
-````yaml
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: mcp-dev-tools
-  namespace: mcp-system
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: mcp-dev-tools
-  namespace: mcp-system
-rules:
-- apiGroups: [""]
-  resources: ["configmaps"]
-  verbs: ["get", "list"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: mcp-dev-tools
-  namespace: mcp-system
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: mcp-dev-tools
-subjects:
-- kind: ServiceAccount
-  name: mcp-dev-tools
-  namespace: mcp-system
-````
-
-### Monitoring and observability
-
-1. **Set up monitoring with Azure Monitor**:
-
-```bash
-# Enable monitoring
-az aks enable-addons \
-  --addons monitoring \
-  --resource-group $RG_NAME \
-  --name $AKS_NAME
-```
-
-2. **Add Prometheus metrics** to your server:
-
-````python
-# Add to src/server.py
-from prometheus_client import Counter, Histogram, generate_latest
-
-# Metrics
-tool_calls = Counter('mcp_tool_calls_total', 'Total MCP tool calls', ['tool'])
-tool_duration = Histogram('mcp_tool_duration_seconds', 'MCP tool call duration', ['tool'])
-
-# Add metrics endpoint to health server
-````
-
-### Scaling considerations
-
-1. **Horizontal Pod Autoscaler**:
-
-````yaml
-apiVersion: autoscaling/v2
-kind: HorizontalPodAutoscaler
-metadata:
-  name: mcp-dev-tools
-  namespace: mcp-system
-spec:
-  scaleTargetRef:
-    apiVersion: apps/v1
-    kind: Deployment
-    name: mcp-dev-tools
-  minReplicas: 2
-  maxReplicas: 10
-  metrics:
-  - type: Resource
-    resource:
-      name: cpu
-      target:
-        type: Utilization
-        averageUtilization: 70
-  - type: Resource
-    resource:
-      name: memory
-      target:
-        type: Utilization
-        averageUtilization: 80
-````
-
 ## Module 14: Troubleshooting guide
 
-<!-- 🚨 BURDEN: Debugging MCP requires deep expertise:
-     - Error messages are generic and unhelpful
-     - Multiple layers of abstraction hide root causes
-     - No standard debugging tools for MCP
-     - Logs scattered across multiple systems
-     
-     Common debugging time sinks:
-     - stdio failures appear as timeout errors
-     - K8s events don't capture MCP-specific issues
-     - IDE connection errors have no diagnostics
-     - Tool failures masked by protocol errors
--->
+### Debugging complexity
+
+BURDEN: Debugging MCP requires deep expertise:
+  - Error messages are generic and unhelpful
+  - Multiple layers of abstraction hide root causes
+  - No standard debugging tools for MCP
+  - Logs scattered across multiple systems
+  
+Common debugging time sinks:
+  - stdio failures appear as timeout errors
+  - K8s events don't capture MCP-specific issues
+  - IDE connection errors have no diagnostics
+  - Tool failures masked by protocol errors
+
 
 ### Common issues and solutions
 
