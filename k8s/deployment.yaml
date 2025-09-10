@@ -24,8 +24,8 @@ spec:
     spec:
       containers:
       - name: mcp-server
-        image: acrmcp6ce9d7.azurecr.io/mcp-dev-tools:v2.0
-        # image: ACR_LOGIN_SERVER/mcp-dev-tools:v2.0  # Wrong version AND placeholder
+        # image: acrmcp6ce9d7.azurecr.io/mcp-dev-tools:v2.0
+        image: ${ACR_LOGIN_SERVER}/mcp-dev-tools:v2.0
         imagePullPolicy: Always
         env:  # ADD THIS SECTION HERE
         - name: MCP_MODE
