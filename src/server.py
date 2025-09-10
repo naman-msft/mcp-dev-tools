@@ -149,6 +149,7 @@ async def execute_command(command: str, working_dir: Optional[str] = None) -> st
     except Exception as e:
         return f"Error executing command: {str(e)}"
 
+@track_metrics("file_operation")
 async def file_operation(
     operation: str, 
     path: str, 
@@ -188,6 +189,7 @@ async def file_operation(
     except Exception as e:
         return f"Error in file operation: {str(e)}"
 
+@track_metrics("system_info")
 async def system_info() -> str:
     """Get system and environment information."""
     import platform

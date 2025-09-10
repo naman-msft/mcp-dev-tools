@@ -26,12 +26,12 @@ spec:
       - name: mcp-server
         image: acrmcpe95e00.azurecr.io/mcp-dev-tools:v1.0
         imagePullPolicy: Always
-        envFrom:
-        - configMapRef:
-            name: mcp-config
         env:  # ADD THIS SECTION HERE
         - name: MCP_MODE
           value: "http"  # Force HTTP bridge mode in Kubernetes
+        envFrom:
+        - configMapRef:
+            name: mcp-config
         ports:
         - name: health
           containerPort: 8080
