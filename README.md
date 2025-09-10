@@ -293,136 +293,20 @@ import os
 import sys
 import json
 import asyncio
-import threading
 import subprocess
+import platform
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any
-from http.server import HTTPServer, BaseHTTPRequestHandler
 from aiohttp import web
-from metrics import track_metrics
-    
-# MCP imports - make them optional for now
-try:
-    from mcp.server import Server, NotificationOptions
-    from mcp.server.models import InitializationOptions
-    import mcp.server.stdio
-    import mcp.types as types
-    MCP_AVAILABLE = True
-except ImportError:
-    print("Warning: MCP SDK not installed. Running in health-check only mode.", file=sys.stderr)
-    MCP_AVAILABLE = False
-    
-    # Define dummy types for health-check only mode
-    class types:
-        class Tool:
-            def __init__(self, **kwargs): pass
-        class TextContent:
-            def __init__(self, **kwargs): pass
 
-# Configuration from environment
-SERVER_NAME = os.getenv("MCP_SERVER_NAME", "dev-tools")
+# Configuration
+SERVER_NAME = os.getenv("MCP_SERVER_NAME", "dev-tools-production")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "info")
 HEALTH_PORT = int(os.getenv("HEALTH_PORT", "8080"))
 WORKSPACE_PATH = os.getenv("WORKSPACE_PATH", "/workspace")
 
-# Initialize MCP server if available
-if MCP_AVAILABLE:
-    app = Server(SERVER_NAME)
-else:
-    app = None
-
-# Simple health check handler
-class HealthHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        if self.path in ["/healthz", "/readyz", "/"]:
-            self.send_response(200)
-            self.send_header("Content-type", "text/plain")
-            self.end_headers()
-            self.wfile.write(b"healthy")
-        else:
-            self.send_response(404)
-            self.end_headers()
-    
-    def log_message(self, format, *args):
-        # Suppress logs unless debug
-        if LOG_LEVEL == "debug":
-            super().log_message(format, *args)
-
-# Start health server in background
-def start_health_server():
-    server = HTTPServer(("0.0.0.0", HEALTH_PORT), HealthHandler)
-    server.allow_reuse_address = True
-    print(f"Health server listening on 0.0.0.0:{HEALTH_PORT}", file=sys.stderr)
-    server.serve_forever()
-
-# MCP Tool definitions (only if MCP is available)
-if MCP_AVAILABLE and app:
-    @app.list_tools()
-    async def handle_list_tools() -> list[types.Tool]:
-        """List all available tools."""
-        return [
-            types.Tool(
-                name="execute_command",
-                description="Execute a shell command and return the output",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "command": {"type": "string", "description": "Shell command to execute"},
-                        "working_dir": {"type": "string", "description": "Optional working directory"}
-                    },
-                    "required": ["command"]
-                }
-            ),
-            types.Tool(
-                name="file_operation",
-                description="Perform file operations (read, write, append, delete, list)",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "operation": {"type": "string", "enum": ["read", "write", "append", "delete", "list"]},
-                        "path": {"type": "string", "description": "File or directory path"},
-                        "content": {"type": "string", "description": "Content for write/append operations"},
-                        "encoding": {"type": "string", "description": "File encoding", "default": "utf-8"}
-                    },
-                    "required": ["operation", "path"]
-                }
-            ),
-            types.Tool(
-                name="system_info",
-                description="Get system and environment information",
-                inputSchema={
-                    "type": "object",
-                    "properties": {}
-                }
-            )
-        ]
-
-    @app.call_tool()
-    async def handle_call_tool(name: str, arguments: dict) -> list[types.TextContent]:
-        """Handle tool execution requests."""
-        
-        if name == "execute_command":
-            result = await execute_command(
-                arguments.get("command"),
-                arguments.get("working_dir")
-            )
-        elif name == "file_operation":
-            result = await file_operation(
-                arguments.get("operation"),
-                arguments.get("path"),
-                arguments.get("content"),
-                arguments.get("encoding", "utf-8")
-            )
-        elif name == "system_info":
-            result = await system_info()
-        else:
-            result = f"Unknown tool: {name}"
-        
-        return [types.TextContent(type="text", text=str(result))]
-
-# Tool implementations
-@track_metrics("execute_command")
+# Tool implementations (your existing working code)
 async def execute_command(command: str, working_dir: Optional[str] = None) -> str:
     """Execute a shell command and return the output."""
     try:
@@ -440,7 +324,6 @@ async def execute_command(command: str, working_dir: Optional[str] = None) -> st
     except Exception as e:
         return f"Error executing command: {str(e)}"
 
-@track_metrics("file_operation")
 async def file_operation(
     operation: str, 
     path: str, 
@@ -457,33 +340,31 @@ async def file_operation(
             return file_path.read_text(encoding=encoding)
             
         elif operation == "write":
-            if content is None:
-                return "Error: Content required for write operation"
             file_path.parent.mkdir(parents=True, exist_ok=True)
-            file_path.write_text(content, encoding=encoding)
-            return f"Successfully wrote {len(content)} chars to {path}"
+            file_path.write_text(content or "", encoding=encoding)
+            return f"Successfully wrote to {path}"
             
         elif operation == "list":
-            if not file_path.exists():
-                return f"Error: Path {path} not found"
             if file_path.is_file():
                 return f"File: {path}"
-            items = []
-            for item in file_path.iterdir():
-                type_str = "DIR" if item.is_dir() else "FILE"
-                items.append(f"[{type_str}] {item.name}")
-            return "\n".join(items) if items else "Empty directory"
-            
+            elif file_path.is_dir():
+                items = []
+                for item in file_path.iterdir():
+                    if item.is_dir():
+                        items.append(f"DIR:  {item.name}/")
+                    else:
+                        items.append(f"FILE: {item.name}")
+                return "\n".join(sorted(items))
+            else:
+                return f"Error: Path {path} not found"
         else:
             return f"Error: Unknown operation '{operation}'"
             
     except Exception as e:
-        return f"Error in file operation: {str(e)}"
+        return f"Error performing {operation} on {path}: {str(e)}"
 
-@track_metrics("system_info")
 async def system_info() -> str:
     """Get system and environment information."""
-    import platform
     info = {
         "timestamp": datetime.now().isoformat(),
         "platform": platform.platform(),
@@ -491,127 +372,233 @@ async def system_info() -> str:
         "hostname": platform.node(),
         "working_directory": os.getcwd(),
         "workspace_path": WORKSPACE_PATH,
-        "mcp_available": MCP_AVAILABLE
+        "mcp_available": True
     }
     return json.dumps(info, indent=2)
 
-# HTTP-to-stdio bridge for remote MCP access
-async def http_to_stdio_bridge(request):
-    """Convert HTTP requests to stdio MCP calls"""
-    try:
-        json_rpc = await request.json()
+# MCP-like protocol handler (stateful)
+class MCPHandler:
+    def __init__(self):
+        self.initialized = False
+        self.session_data = {}
         
-        # Forward to MCP server via stdio
-        proc = await asyncio.create_subprocess_exec(
-            sys.executable, '-m', 'src.server',
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env={**os.environ, 'MCP_MODE': 'stdio'}  # Force stdio mode
-        )
+    async def handle_request(self, request_data):
+        """Handle incoming MCP request"""
+        method = request_data.get("method")
+        params = request_data.get("params", {})
+        request_id = request_data.get("id")
         
-        # Send JSON-RPC to stdin
-        proc.stdin.write(json.dumps(json_rpc).encode() + b'\n')
-        await proc.stdin.drain()
-        proc.stdin.close()
+        if method == "initialize":
+            return await self.handle_initialize(params, request_id)
+        elif method == "tools/list":
+            return await self.handle_tools_list(request_id)
+        elif method == "tools/call":
+            return await self.handle_tool_call(params, request_id)
+        else:
+            return {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "error": {
+                    "code": -32601,
+                    "message": f"Method not found: {method}"
+                }
+            }
+    
+    async def handle_initialize(self, params, request_id):
+        """Handle MCP initialize request"""
+        self.initialized = True
+        self.session_data["protocolVersion"] = params.get("protocolVersion", "1.0.0")
         
-        # Read response from stdout (with timeout)
+        return {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": {
+                "protocolVersion": "1.0.0",
+                "capabilities": {
+                    "tools": {}
+                },
+                "serverInfo": {
+                    "name": SERVER_NAME,
+                    "version": "2.0.0"
+                }
+            }
+        }
+    
+    async def handle_tools_list(self, request_id):
+        """Handle tools/list request"""
+        if not self.initialized:
+            return {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "error": {
+                    "code": -32002,
+                    "message": "Server not initialized"
+                }
+            }
+        
+        tools = [
+            {
+                "name": "execute_command",
+                "description": "Execute a shell command",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "command": {"type": "string"},
+                        "working_dir": {"type": "string"}
+                    },
+                    "required": ["command"]
+                }
+            },
+            {
+                "name": "file_operation", 
+                "description": "Perform file operations",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "operation": {"type": "string"},
+                        "path": {"type": "string"},
+                        "content": {"type": "string"},
+                        "encoding": {"type": "string"}
+                    },
+                    "required": ["operation", "path"]
+                }
+            },
+            {
+                "name": "system_info",
+                "description": "Get system information",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {}
+                }
+            }
+        ]
+        
+        return {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": {
+                "tools": tools
+            }
+        }
+    
+    async def handle_tool_call(self, params, request_id):
+        """Handle tools/call request"""
+        if not self.initialized:
+            return {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "error": {
+                    "code": -32002,
+                    "message": "Server not initialized"
+                }
+            }
+        
+        tool_name = params.get("name")
+        arguments = params.get("arguments", {})
+        
         try:
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(), 
-                timeout=30.0
-            )
+            if tool_name == "execute_command":
+                result = await execute_command(
+                    arguments.get("command"),
+                    arguments.get("working_dir")
+                )
+            elif tool_name == "file_operation":
+                result = await file_operation(
+                    arguments.get("operation"),
+                    arguments.get("path"),
+                    arguments.get("content"),
+                    arguments.get("encoding", "utf-8")
+                )
+            elif tool_name == "system_info":
+                result = await system_info()
+            else:
+                return {
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "error": {
+                        "code": -32601,
+                        "message": f"Unknown tool: {tool_name}"
+                    }
+                }
             
-            if stderr and LOG_LEVEL == "debug":
-                print(f"Bridge stderr: {stderr.decode()}", file=sys.stderr)
+            return {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "result": {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": result
+                        }
+                    ]
+                }
+            }
             
-            # Parse response
-            response = json.loads(stdout.decode())
-            return web.json_response(response)
-            
-        except asyncio.TimeoutError:
-            proc.kill()
-            return web.json_response(
-                {"error": "MCP request timeout"},
-                status=504
-            )
-            
-    except json.JSONDecodeError as e:
-        return web.json_response(
-            {"error": f"Invalid JSON: {str(e)}"},
-            status=400
-        )
-    except Exception as e:
-        print(f"Bridge error: {e}", file=sys.stderr)
-        return web.json_response(
-            {"error": f"Bridge error: {str(e)}"},
-            status=500
-        )
+        except Exception as e:
+            return {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "error": {
+                    "code": -32603,
+                    "message": f"Tool execution error: {str(e)}"
+                }
+            }
 
-async def start_http_bridge():
-    """Start HTTP-to-stdio bridge server"""
+# Global handler instance (maintains state)
+mcp_handler = MCPHandler()
+
+async def handle_mcp_request(request):
+    """HTTP endpoint for MCP requests"""
+    try:
+        data = await request.json()
+        response = await mcp_handler.handle_request(data)
+        return web.json_response(response)
+    except json.JSONDecodeError:
+        return web.json_response({
+            "jsonrpc": "2.0",
+            "error": {
+                "code": -32700,
+                "message": "Parse error"
+            }
+        }, status=400)
+    except Exception as e:
+        return web.json_response({
+            "jsonrpc": "2.0",
+            "error": {
+                "code": -32603,
+                "message": f"Internal error: {str(e)}"
+            }
+        }, status=500)
+
+async def handle_health(request):
+    """Health check endpoint"""
+    return web.Response(text="OK")
+
+async def start_server():
+    """Start the HTTP server with MCP handler"""
     app = web.Application()
-    app.router.add_post('/mcp', http_to_stdio_bridge)
-    app.router.add_get('/health', lambda r: web.Response(text="OK"))
+    app.router.add_post('/mcp', handle_mcp_request)
+    app.router.add_get('/health', handle_health)
+    app.router.add_get('/healthz', handle_health)
+    app.router.add_get('/readyz', handle_health)
     
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, '0.0.0.0', HEALTH_PORT)
     
-    print(f"HTTP-to-stdio bridge listening on 0.0.0.0:{HEALTH_PORT}/mcp", file=sys.stderr)
+    print(f"MCP Server (Stateful) listening on 0.0.0.0:{HEALTH_PORT}", file=sys.stderr)
+    print(f"  Health: http://0.0.0.0:{HEALTH_PORT}/health", file=sys.stderr)
+    print(f"  MCP:    http://0.0.0.0:{HEALTH_PORT}/mcp", file=sys.stderr)
+    
     await site.start()
     
-    # Keep running forever
+    # Keep running
     while True:
         await asyncio.sleep(3600)
 
-# Main async function
-async def run_server():
-    """Run the server with health check and optional MCP."""
-    
-    # Check if we're in stdio mode (direct MCP) or HTTP bridge mode
-    mcp_mode = os.getenv("MCP_MODE", "auto")
-    
-    if mcp_mode == "stdio" or (mcp_mode == "auto" and sys.stdin.isatty()):
-        # Direct stdio mode for MCP
-        if MCP_AVAILABLE and app:
-            try:
-                async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
-                    print(f"MCP Server running with stdio transport", file=sys.stderr)
-                    await app.run(
-                        read_stream,
-                        write_stream,
-                        InitializationOptions(
-                            server_name=SERVER_NAME,
-                            server_version="1.0.0",
-                            capabilities=app.get_capabilities(
-                                notification_options=NotificationOptions(),
-                                experimental_capabilities={},
-                            )
-                        )
-                    )
-            except Exception as e:
-                print(f"MCP server error: {e}", file=sys.stderr)
-        else:
-            print("MCP not available or no app initialized", file=sys.stderr)
-    
-    elif mcp_mode == "http" or (mcp_mode == "auto" and not sys.stdin.isatty()):
-        # HTTP bridge mode (for Kubernetes)
-        print(f"Starting HTTP-to-stdio bridge mode", file=sys.stderr)
-        await start_http_bridge()
-    
-    else:
-        # Fallback: just run health server
-        health_thread = threading.Thread(target=start_health_server, daemon=True)
-        health_thread.start()
-        print(f"Running in health-check only mode", file=sys.stderr)
-        while True:
-            await asyncio.sleep(60)
-
-# Entry point
 if __name__ == "__main__":
     try:
-        asyncio.run(run_server())
+        asyncio.run(start_server())
     except KeyboardInterrupt:
         print("\nServer shutting down...", file=sys.stderr)
     except Exception as e:
@@ -622,9 +609,10 @@ if __name__ == "__main__":
 ### Step 3: Create requirements file
 
 ````python
-mcp>=0.1.0
-aiohttp>=3.9.0
-anyio>=4.0.0
+mcp
+aiohttp
+anyio
+prometheus-client
 ````
 
 ### Step 4: Create Dockerfile
@@ -642,25 +630,29 @@ RUN apt-get update && apt-get install -y \
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    WORKSPACE_PATH=/workspace
+    WORKSPACE_PATH=/workspace \
+    MCP_MODE=http
 
-# Create app directory
+# Set working directory
 WORKDIR /app
 
-# Copy and install Python dependencies
+# Copy requirements first (for better caching)
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt || true
+RUN pip install aiohttp
 
-# Copy application code
-COPY src/ ./src/
+# Copy ALL source files explicitly
+COPY src/__init__.py ./src/
+COPY src/server_v2.py ./src/server.py
+COPY src/metrics.py ./src/
 
 # Create workspace directory
 RUN mkdir -p /workspace
 
-# Health check port
+# Expose port
 EXPOSE 8080
 
-# Run the MCP server
+# Run the server
 CMD ["python", "-m", "src.server"]
 ````
 
@@ -747,13 +739,13 @@ kubectl get nodes
 ```bash
 # Build the Docker image
 echo "Building Docker image..."
-docker build -t mcp-dev-tools:latest --load .
+docker build -t mcp-dev-tools:v2.0 --load .
 
 # Verify the image exists locally
 docker images | grep mcp-dev-tools
 
 # Tag for ACR
-docker tag mcp-dev-tools:latest $ACR_LOGIN_SERVER/mcp-dev-tools:v1.0
+docker tag mcp-dev-tools:v2.0 $ACR_LOGIN_SERVER/mcp-dev-tools:v2.0
 
 # Login to ACR
 echo "Logging in to ACR..."
@@ -761,13 +753,13 @@ az acr login --name $ACR_NAME --resource-group $RG_NAME
 
 # Push to ACR
 echo "Pushing image to ACR..."
-docker push $ACR_LOGIN_SERVER/mcp-dev-tools:v1.0
+docker push $ACR_LOGIN_SERVER/mcp-dev-tools:v2.0
 
 # Verify image in registry
 az acr repository show \
   --name $ACR_NAME \
   --resource-group $RG_NAME \
-  --image mcp-dev-tools:v1.0
+  --image mcp-dev-tools:v2.0
 ```
 
 ## Module 4: Set up CI/CD Pipeline
@@ -929,7 +921,7 @@ metadata:
   namespace: mcp-system
   labels:
     app: mcp-dev-tools
-    version: v1.0
+    version: v2.0
 spec:
   replicas: 2
   strategy:
@@ -944,12 +936,15 @@ spec:
     metadata:
       labels:
         app: mcp-dev-tools
-        version: v1.0
+        version: v2.0
     spec:
       containers:
       - name: mcp-server
-        image: ACR_LOGIN_SERVER/mcp-dev-tools:v1.0
+        image: ACR_LOGIN_SERVER/mcp-dev-tools:v2.0
         imagePullPolicy: Always
+        env:
+        - name: MCP_MODE
+          value: "http"  # Force HTTP bridge mode in Kubernetes
         envFrom:
         - configMapRef:
             name: mcp-config
@@ -1069,12 +1064,58 @@ kubectl logs -n mcp-system -l app=mcp-dev-tools --tail=50
 # Port-forward to test
 kubectl port-forward -n mcp-system svc/mcp-dev-tools 8080:8080
 
-# Test HTTP endpoint (not just health check)
-curl -X POST http://localhost:8080/mcp \
+# Test stateful MCP protocol (initialize first, then list tools)
+curl -s -X POST http://localhost:8080/mcp \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'
+  -d '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"1.0.0"},"id":1}'
+
+curl -s -X POST http://localhost:8080/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"tools/list","id":2}'
 ```
 
+## Module 5.5: Automated Deployment Scripts
+
+### Step 1: Use the deployment script
+
+```bash
+# Make scripts executable
+chmod +x scripts/deploy-v2.sh
+chmod +x scripts/test-deployment.sh
+chmod +x scripts/port-forward.sh
+
+# Deploy the stateful v2.0 server
+./scripts/deploy-v2.sh
+
+# Test the deployment
+./scripts/test-deployment.sh
+```
+
+### Step 2: Port forwarding for local access
+
+```bash
+# In terminal 1: Start port forwarding
+./scripts/port-forward.sh
+
+# In terminal 2: Test stateful MCP protocol
+./test-stateful-mcp.sh
+
+# Or test manually with proper stateful sequence:
+# 1. Initialize session
+curl -s -X POST http://localhost:8080/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"1.0.0"},"id":1}'
+
+# 2. List available tools
+curl -s -X POST http://localhost:8080/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"tools/list","id":2}'
+
+# 3. Execute a command
+curl -s -X POST http://localhost:8080/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"execute_command","arguments":{"command":"echo MCP v2.0 Works!"}},"id":3}'
+```
 ## Module 6: Add Authentication and Authorization
 
 ### Deployment complexity
@@ -1092,8 +1133,265 @@ Real issues encountered:
   - CORS issues with browser-based clients
   - Token refresh logic must be implemented manually
 
+> **📝 Corporate Tenant Users**: If you're in a Microsoft corporate tenant or restricted environment where CLI app registration is blocked, skip to [Alternative Step 1: Portal-based App Registration](#alternative-step-1-portal-based-app-registration-corporate-tenants)
 
-### Step 1: Register Azure AD application
+### Portal-based App Registration (Corporate Tenants)
+
+**For Microsoft corporate tenants or restricted environments where CLI app registration is blocked:**
+
+#### Step 1a: Create App Registration via Portal
+
+1. **Navigate to Azure Portal**
+   - Go to [portal.azure.com](https://portal.azure.com)
+   - Search for "App registrations" in the top search bar
+   - Click "+ New registration"
+
+2. **Configure Basic Settings**
+   ```
+   Name: mcp-dev-tools-auth
+   Supported account types: Accounts in this organizational directory only (Microsoft only - Single tenant)
+   Redirect URI: Leave blank for now (we'll add later if needed)
+   ```
+   - Click "Register"
+   - **Copy the Application (client) ID** - you'll need this
+
+3. **Create Federated Credentials for GitHub Actions**
+   - In your app registration, go to "Certificates & secrets"
+   - Click "Federated credentials" tab
+   - Click "+ Add credential"
+   - Select "GitHub Actions deploying Azure resources"
+   - Fill in:
+     ```
+     Organization: naman-msft
+     Repository: mcp-dev-tools
+     Entity type: Branch
+     Branch name: master
+     Name: github-actions-master
+     Description: GitHub Actions deployment from master branch
+     ```
+   - Click "Add"
+
+4. **Create Additional Federated Credentials for Pull Requests** (optional)
+   - Click "+ Add credential" again
+   - Select "GitHub Actions deploying Azure resources"
+   - Fill in:
+     ```
+     Organization: naman-msft
+     Repository: mcp-dev-tools
+     Entity type: Pull request
+     Name: github-actions-pr
+     Description: GitHub Actions for pull requests
+     ```
+   - Click "Add"
+
+#### Step 1b: Assign RBAC Roles
+
+1. **Navigate to your Resource Group**
+   - Go to your resource group (e.g., `rg-mcp-tutorial-xxx`)
+   - Click "Access control (IAM)"
+   - Click "+ Add" → "Add role assignment"
+
+2. **Assign Contributor Role**
+   - Role tab: Search and select "Contributor"
+   - Members tab: 
+     - Select "User, group, or service principal"
+     - Click "+ Select members"
+     - Search for your app name: `mcp-dev-tools-auth`
+     - Select it and click "Select"
+   - Review + assign
+
+3. **Assign AcrPush Role (for container registry)**
+   - Go to your ACR resource
+   - Click "Access control (IAM)"
+   - Click "+ Add" → "Add role assignment"
+   - Role: "AcrPush"
+   - Assign to your app: `mcp-dev-tools-auth`
+   - Review + assign
+
+#### Step 1c: Update GitHub Secrets for Federated Auth
+
+Instead of using service principal credentials JSON, use federated authentication:
+
+```yaml
+# In your GitHub repository settings → Secrets and variables → Actions
+# Add these repository secrets:
+
+AZURE_CLIENT_ID: <your-app-registration-client-id>
+AZURE_TENANT_ID: <your-azure-tenant-id>
+AZURE_SUBSCRIPTION_ID: <your-subscription-id>
+```
+
+To get these values:
+```bash
+# Get Tenant ID
+az account show --query tenantId -o tsv
+
+# Get Subscription ID
+az account show --query id -o tsv
+
+# Client ID is from the App Registration you created
+```
+
+#### Step 1d: Update GitHub Actions Workflow for Federated Auth
+
+Update `.github/workflows/deploy-mcp.yml`:
+
+```yaml
+name: Build and Deploy MCP Server
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  id-token: write  # Required for OIDC
+  contents: read
+
+env:
+  IMAGE_TAG: ${{ github.sha }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Azure Login with OIDC
+      uses: azure/login@v1
+      with:
+        client-id: ${{ secrets.AZURE_CLIENT_ID }}
+        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+    
+    - name: Build and push to ACR
+      run: |
+        az acr build \
+          --registry ${{ secrets.ACR_NAME }} \
+          --image mcp-dev-tools:${{ env.IMAGE_TAG }} \
+          --image mcp-dev-tools:latest \
+          --file Dockerfile \
+          .
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Azure Login with OIDC
+      uses: azure/login@v1
+      with:
+        client-id: ${{ secrets.AZURE_CLIENT_ID }}
+        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+    
+    - name: Deploy to AKS
+      run: |
+        az aks get-credentials \
+          --resource-group ${{ secrets.RESOURCE_GROUP }} \
+          --name ${{ secrets.AKS_NAME }}
+        
+        kubectl set image deployment/mcp-dev-tools \
+          mcp-server=${{ secrets.ACR_LOGIN_SERVER }}/mcp-dev-tools:${{ env.IMAGE_TAG }} \
+          -n mcp-system
+        
+        kubectl rollout status deployment/mcp-dev-tools -n mcp-system
+```
+
+#### Step 2: MCP Server Authentication with Managed Identity
+
+For the MCP server itself, use Azure Managed Identity instead of service principal:
+
+```python
+# Update src/auth.py to use DefaultAzureCredential
+from azure.identity import DefaultAzureCredential, ManagedIdentityCredential
+import os
+
+class AzureADAuthenticator:
+    def __init__(self):
+        self.tenant_id = os.getenv("AZURE_TENANT_ID")
+        self.client_id = os.getenv("AZURE_CLIENT_ID", None)
+        
+        # Use Managed Identity in AKS, fallback to DefaultAzureCredential locally
+        if os.getenv("KUBERNETES_SERVICE_HOST"):
+            # Running in Kubernetes - use Managed Identity
+            self.credential = ManagedIdentityCredential(
+                client_id=self.client_id
+            ) if self.client_id else ManagedIdentityCredential()
+        else:
+            # Local development - use Azure CLI or other methods
+            self.credential = DefaultAzureCredential()
+        
+    async def get_token(self, scope: str = "https://management.azure.com/.default"):
+        """Get Azure AD token using managed identity or default credentials."""
+        token = self.credential.get_token(scope)
+        return token.token
+```
+
+#### Step 3: Enable Managed Identity on AKS
+
+```bash
+# Enable managed identity on your AKS cluster
+az aks update \
+  --resource-group $RG_NAME \
+  --name $AKS_NAME \
+  --enable-managed-identity
+
+# Get the managed identity client ID
+export AKS_IDENTITY_CLIENT_ID=$(az aks show \
+  --resource-group $RG_NAME \
+  --name $AKS_NAME \
+  --query identityProfile.kubeletidentity.clientId -o tsv)
+
+# Assign necessary roles to the managed identity
+# For Key Vault access
+az keyvault set-policy \
+  --name $KEY_VAULT_NAME \
+  --object-id $AKS_IDENTITY_CLIENT_ID \
+  --secret-permissions get list
+
+# For ACR pull
+az role assignment create \
+  --assignee $AKS_IDENTITY_CLIENT_ID \
+  --role "AcrPull" \
+  --scope $(az acr show --name $ACR_NAME --query id -o tsv)
+```
+
+#### Why Federated Credentials are Better for Corporate Environments
+
+**Advantages over Service Principal with Secrets:**
+- ✅ **No secrets to manage** - Uses OIDC tokens instead
+- ✅ **Automatic expiration** - Tokens are short-lived (1 hour)
+- ✅ **No rotation needed** - No passwords or certificates to rotate
+- ✅ **Compliance friendly** - Meets most corporate security policies
+- ✅ **Audit trail** - All actions tied to GitHub workflow runs
+
+**Limitations:**
+- ⚠️ Only works from GitHub Actions (not local development)
+- ⚠️ Requires GitHub Enterprise for private repos in some orgs
+- ⚠️ Initial setup is portal-heavy (no CLI automation)
+
+#### Troubleshooting Federated Authentication
+
+Common issues in corporate environments:
+
+| Issue | Solution |
+|-------|----------|
+| "AADSTS700016: Application not found" | Ensure federated credential matches your GitHub org/repo exactly |
+| "AADSTS50020: User account does not exist" | Check tenant ID is correct |
+| "Authorization_RequestDenied" | App registration needs admin consent - contact IT |
+| "No subscription found" | Add subscription reader role to the app |
+| GitHub Actions fails with "Error: Could not get ACTIONS_ID_TOKEN_REQUEST_URL" | Add `permissions: id-token: write` to workflow |
+
+### CLI-based App Registration
+
+#### Step 1: Register Azure AD application
 
 ```bash
 # Create app registration
@@ -1113,7 +1411,7 @@ echo "Client ID: $AZURE_CLIENT_ID"
 echo "Tenant ID: $AZURE_TENANT_ID"
 ```
 
-### Step 2: Update server with authentication
+#### Step 2: Update server with authentication
 
 Create `src/auth.py`:
 
@@ -1161,7 +1459,7 @@ def require_auth(func):
     return wrapper
 ````
 
-### Step 3: Update ConfigMap with auth settings
+#### Step 3: Update ConfigMap with auth settings
 
 ```bash
 kubectl apply -f - <<EOF
@@ -1177,7 +1475,7 @@ data:
 EOF
 ```
 
-### Step 4: Update deployment to include auth config
+#### Step 4: Update deployment to include auth config
 
 ```bash
 kubectl patch deployment mcp-dev-tools -n mcp-system -p '
@@ -1474,10 +1772,14 @@ kubectl apply -f k8s/servicemonitor.yaml
 # Check metrics endpoint
 kubectl port-forward -n mcp-system svc/mcp-dev-tools 8080:8080
 
-# Test HTTP endpoint
-curl -X POST http://localhost:8080/mcp \
+# Test stateful MCP endpoint with proper initialization
+curl -s -X POST http://localhost:8080/mcp \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'
+  -d '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"1.0.0"},"id":1}'
+
+curl -s -X POST http://localhost:8080/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"system_info","arguments":{}},"id":3}'
 ```
 
 ## Module 9: Set up secure access with port forwarding
@@ -1524,6 +1826,15 @@ chmod +x scripts/port-forward.sh
 # In terminal 2: Test health endpoint
 curl http://localhost:8080/healthz
 # Should return: healthy
+
+# In terminal 3: Test stateful MCP protocol
+curl -s -X POST http://localhost:8080/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"1.0.0"},"id":1}'
+
+curl -s -X POST http://localhost:8080/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"tools/list","id":2}'
 ```
 
 ## Module 10: Integrate with VS Code/Cursor IDE
@@ -1653,16 +1964,22 @@ if __name__ == "__main__":
 ### Step 1: Validate MCP server tools
 
 ```bash
-# Test directly via port-forward
-curl -X POST http://localhost:8080/healthz
+# Use your actual working test script
+chmod +x test-stateful-mcp.sh
+./test-stateful-mcp.sh
 
-# Test via kubectl exec
-kubectl exec -n mcp-system deployment/mcp-dev-tools -- python -c "
-from src.server import system_info
-import asyncio
-result = asyncio.run(system_info())
-print(result)
-"
+# Or use your deployment test script
+chmod +x scripts/test-deployment.sh
+./scripts/test-deployment.sh
+
+# Manual testing with curl (if needed)
+curl -s -X POST http://localhost:8080/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"1.0.0"},"id":1}'
+
+curl -s -X POST http://localhost:8080/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"tools/call","params":{"name":"execute_command","arguments":{"command":"echo MCP v2.0 Works!"}},"id":4}'
 ```
 
 ### Step 2: Test in IDE
