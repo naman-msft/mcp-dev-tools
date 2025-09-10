@@ -1,3 +1,4 @@
 mcp
 aiohttp
 anyio
+prometheus-client

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from aiohttp import web
-from metrics import track_metrics
+from src.metrics import track_metrics
     
 # MCP imports - make them optional for now
 try:

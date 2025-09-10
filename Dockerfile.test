@@ -1,0 +1,28 @@
+FROM python:3.11-slim
+
+RUN apt-get update && apt-get install -y \
+    curl \
+    git \
+    jq \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    WORKSPACE_PATH=/workspace \
+    MCP_MODE=http
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt || true
+RUN pip install aiohttp
+
+COPY src/__init__.py ./src/
+COPY src/server_v2.py ./src/server.py
+COPY src/metrics.py ./src/
+
+RUN mkdir -p /workspace
+
+EXPOSE 8080
+
+CMD ["python", "-m", "src.server"]
