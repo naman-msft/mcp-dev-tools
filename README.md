@@ -141,6 +141,88 @@ This README demonstrates the manual process to justify why automation is critica
 - Custom auth providers → Start with API keys
 - Edge cases → Handle in Phase 3
 
+
+## Why MCP Deployment Is Uniquely Complex
+
+### MCP vs Standard Cloud Native Applications
+
+| Task | Normal Web App | MCP Server | Additional Complexity |
+|------|---------------|------------|----------------------|
+| **Dockerfile** | Basic FROM/COPY/CMD | Stdio handler, signal handling, multi-stage | MCP-specific requirements |
+| **K8s Manifests** | Deployment + Service (2-3 files) | 7+ resources with special annotations | Transport-specific configs |
+| **Networking** | Single ingress rule | Multiple ingress + stdio bridge | Protocol translation layer |
+| **Authentication** | Single method | Different per transport | Complex auth matrix |
+| **IDE Setup** | Not required | Manual configuration per IDE | New requirement entirely |
+| **Health Checks** | Standard HTTP endpoint | Custom stdio wrapper needed | MCP doesn't support HTTP natively |
+| **Testing** | Simple curl commands | Complex stdio piping | Special tooling required |
+| **Debugging** | Standard logs | Multiple transport logs | Correlation complexity |
+
+### Why MCP Deployment Is Exponentially Harder
+
+**1. Multi-Protocol Challenge**
+Unlike standard apps with one protocol (HTTP), MCP requires simultaneous support for:
+- **stdio** (local IDE connections)
+- **HTTP** (remote API access) 
+- **WebSocket** (streaming connections)
+
+Each requires different connection models, error handling, and configuration.
+
+**2. Transport Bridging Complexity**
+Standard apps don't need protocol translation. MCP requires stdio-to-HTTP bridges that:
+- Don't exist as standard Kubernetes components
+- Must handle connection state across protocols
+- Need custom error translation between transport types
+
+**3. IDE Integration Nightmare**
+Standard apps don't need IDE configuration. MCP requires specific setup for:
+- VS Code (different config format)
+- Cursor (different connection method)
+- Claude Desktop (different auth flow)
+- Each with zero standardization or validation
+
+**4. Authentication Matrix**
+Standard apps use one auth method. MCP needs:
+- **System context** for stdio (no tokens)
+- **API keys** for HTTP endpoints
+- **OAuth flows** for WebSocket connections
+- **Different expiration** and rotation policies for each
+
+**5. Stateful Streaming Requirements**
+Standard apps are typically stateless. MCP maintains:
+- Long-lived connections requiring special handling
+- Connection state that survives pod restarts
+- Graceful reconnection logic for each transport
+- Context window management for large AI conversations
+
+### CLI Scaffolding Tool Idea
+
+#### Current Manual Process:
+
+- Write Dockerfile with MCP-specific base images
+- Create 7+ Kubernetes manifests
+- Configure stdio-to-HTTP bridge
+- Set up multiple ingress rules
+- Generate API keys
+- Configure each IDE separately
+- Test each transport independently
+
+#### With CLI Tool
+
+Single command wraps all of the above:
+
+```bash
+aks-mcp deploy --cluster my-aks
+```
+
+Behind the scenes, it:
+- Generates MCP-aware Dockerfile with stdio handler
+- Creates all required K8s manifests with correct labels
+- Sets up transport bridging automatically
+- Configures ingress with WebSocket support
+- Generates and stores API keys
+- Outputs IDE configuration snippets
+- Validates all transports are working
+
 ## Module 1: Understanding MCP architecture
 
 ### What is MCP?
