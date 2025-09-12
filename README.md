@@ -29,7 +29,7 @@ The Model Context Protocol (MCP) enables AI assistants to access tools and data 
 - Python programming
 - REST APIs and JSON
 
-## 🚨 Executive Summary: Why MCP Deployment Is Uniquely Painful
+## 🚨 Summary
 
 **The Bottom Line**: Deploying an MCP server is more complex than a typical containerized application because:
 
@@ -47,72 +47,6 @@ This README demonstrates the manual process to justify why automation is critica
 - **Maintenance Burden**: Whether it is maintaining certificates, updating packages, monitoring security, it is not a "set and forget" task
 - **Team Coordination**: In real life, may need coordination among multiple different teams (DevOps, Security, Networking, Platform, Development)
 - **Error Recovery**: When something breaks, debugging requires proper K8s knowledge
-
-### Complexity Comparison
-
-| Aspect | Normal Web App | MCP Server | Multiplier |
-|--------|---------------|------------|------------|
-| **Transports** | 1 (HTTP) | 3+ (stdio, HTTP, WS) | 3x |
-| **Auth Mechanisms** | 1 (Bearer token) | 3+ (System, API key, OAuth) | 3x |
-| **Secrets** | 3-5 | 15-20 | 4x |
-| **Config Files** | 5-10 | 30-50 | 5x |
-| **Monitoring Endpoints** | 2 (/health, /metrics) | 8+ (per transport + tools) | 4x |
-| **Network Policies** | 2-3 | 10+ | 4x |
-| **Time to Deploy** | 1 day | 2-3 weeks | 15x |
-| **Required Expertise** | 5 technologies | 15+ technologies | 3x |
-| **Ongoing Maintenance** | 5 hrs/month | 20+ hrs/month | 4x |
-
-### Unique MCP Challenges Not in Normal Apps
-
-1. **Protocol Translation**: stdio ↔ HTTP ↔ WebSocket bridging
-2. **Tool Discovery**: Dynamic capability registration
-3. **Schema Validation**: Runtime type checking for AI models
-4. **Context Management**: Handle 100K+ token windows
-5. **Streaming State**: Maintain connection state across restarts
-6. **IDE Integration**: Support 5+ different IDE protocols
-7. **AI Rate Limits**: Handle OpenAI/Claude rate limiting gracefully
-
-<!-- ## 🎯 What MCPaaS Actually Solves (Not Everything, But The Hard Parts) -->
-
-### Phase 1 (CLI) - What We Solve ✅
-- ✅ **Transport Bridging**: Automatic stdio → HTTP conversion
-- ✅ **Container Generation**: MCP-aware Dockerfiles
-- ✅ **Basic Deployment**: Get to AKS in one command
-- ❌ Full auth/authz (manual setup required)
-- ❌ Multi-transport support (HTTP only)
-- ❌ Secret rotation (use Key Vault manually)
-
-### Phase 2 (Portal) - What We Solve ✅
-- ✅ **Visual Discovery**: Find and deploy MCPs
-- ✅ **Basic Auth**: API key generation
-- ✅ **Monitoring**: Basic health/metrics
-- ⚠️ **Partial RBAC**: Namespace-level only
-- ❌ Enterprise SSO (coming in Phase 3)
-- ❌ Compliance scanning (manual)
-
-### Phase 3 (Platform) - Full Solution ✅
-- ✅ All transport types with auto-bridging
-- ✅ Complete auth/authz with Azure AD
-- ✅ Automated secret rotation
-- ✅ Compliance and security scanning
-- ✅ Multi-tenant isolation
-- ✅ Cost optimization
-
-### Why This Phasing Makes Sense
-
-**We're solving the 80% that takes 95% of the time:**
-- Transport complexity → Automated
-- Deployment pipeline → One-click
-- Discovery problem → Centralized catalog
-- Connection nightmare → Auto-configuration
-
-**We're NOT immediately solving (because workarounds exist):**
-- Advanced RBAC → Use K8s native for now
-- Custom auth providers → Start with API keys
-- Edge cases → Handle in Phase 3
-
-
-## Why MCP Deployment Is Uniquely Complex
 
 ### MCP vs Standard Cloud Native Applications
 
@@ -163,36 +97,6 @@ Standard apps are typically stateless. MCP maintains:
 - Connection state that survives pod restarts
 - Graceful reconnection logic for each transport
 - Context window management for large AI conversations
-
-### CLI Scaffolding Tool Idea
-
-#### Current Manual Process:
-
-- Write Dockerfile with MCP-specific base images
-- Create 7+ Kubernetes manifests
-- Configure stdio-to-HTTP bridge
-- Set up multiple ingress rules
-- Generate API keys
-- Configure each IDE separately
-- Test each transport independently
-
-#### With CLI Tool
-
-Single command wraps all of the above:
-
-```bash
-aks-mcp deploy --cluster my-aks
-```
-
-Behind the scenes, it:
-- Generates MCP-aware Dockerfile with stdio handler
-- Creates all required K8s manifests with correct labels
-- Sets up transport bridging automatically
-- Configures ingress with WebSocket support
-- Generates and stores API keys
-- Outputs IDE configuration snippets
-- Validates all transports are working
-
 
 ## 🚀 Solution Pathways: From Manual to Managed
 
