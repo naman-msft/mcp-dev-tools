@@ -6,15 +6,16 @@ metadata:
   namespace: mcp-system
   annotations:
     cert-manager.io/cluster-issuer: "letsencrypt-staging"
-    nginx.ingress.kubernetes.io/ssl-redirect: "false"  # Changed to false for testing
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
 spec:
   ingressClassName: nginx
   tls:
   - hosts:
-    - 20.185.42.101.nip.io  # Replace with YOUR-IP.nip.io
+    - 52.237.51.219.nip.io  # Replace with YOUR-IP.nip.io
     secretName: mcp-dev-tools-tls
   rules:
-  - host: 20.185.42.101.nip.io  # Replace with YOUR-IP.nip.io
+  - host: 52.237.51.219.nip.io  # Replace with YOUR-IP.nip.io
     http:
       paths:
       - path: /

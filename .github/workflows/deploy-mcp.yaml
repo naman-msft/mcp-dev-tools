@@ -2,9 +2,9 @@ name: Build and Deploy MCP Server
 
 on:
   push:
-    branches: [main, master]
+    branches: [main]
   pull_request:
-    branches: [main, master]
+    branches: [main]
 
 permissions:
   id-token: write  # Required for OIDC
@@ -38,7 +38,7 @@ jobs:
   deploy:
     needs: build-and-push
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    if: github.ref == 'refs/heads/main'
     permissions:
       id-token: write
       contents: read
@@ -54,15 +54,12 @@ jobs:
     
     - name: Deploy to AKS
       run: |
-        # Get ACR login server from ACR name
-        export ACR_LOGIN_SERVER=$(az acr show --name ${{ secrets.ACR_NAME }} --query loginServer -o tsv)
-        
         az aks get-credentials \
           --resource-group ${{ secrets.RESOURCE_GROUP }} \
           --name ${{ secrets.AKS_NAME }}
         
         kubectl set image deployment/mcp-dev-tools \
-          mcp-server=${ACR_LOGIN_SERVER}/mcp-dev-tools:${{ env.IMAGE_TAG }} \
+          mcp-server=${{ secrets.ACR_LOGIN_SERVER }}/mcp-dev-tools:${{ env.IMAGE_TAG }} \
           -n mcp-system
         
         kubectl rollout status deployment/mcp-dev-tools -n mcp-system

@@ -31,52 +31,22 @@ The Model Context Protocol (MCP) enables AI assistants to access tools and data 
 
 ## 🚨 Executive Summary: Why MCP Deployment Is Uniquely Painful
 
-**The Bottom Line**: Deploying an MCP server is **4-5x more complex** than a typical containerized application because:
+**The Bottom Line**: Deploying an MCP server is more complex than a typical containerized application because:
 
-1. **Multi-Transport Hell**: Unlike REST APIs, MCP requires stdio (local), HTTP (remote), and WebSocket (streaming) simultaneously
+1. **Multi-Transport Issues**: Unlike REST APIs, MCP requires stdio (local), HTTP (remote), and WebSocket (streaming) simultaneously
 2. **Auth Complexity**: Each transport needs different authentication - system context, API keys, and OAuth
-3. **Secret Sprawl**: 15-20 secrets vs 3-5 for normal apps
+3. **Secret Sprawl**: More secrets needed vs for normal apps
 4. **IDE Integration**: Must work with VS Code, Cursor, Claude Desktop, and more
 5. **AI-Specific**: Handle streaming, large contexts, and protocol translation
 
-**Manual Deployment Stats**:
-- ⏱️ **Time**: 2-3 weeks (vs 1 day for normal app)
-- 👥 **Teams**: 5 (Dev, DevOps, Security, Network, Platform)
-- 💰 **Cost**: $200-500/month before optimization
-- 🔧 **Maintenance**: 20% of engineering time ongoing
-
-**What MCPaaS Solves**:
-- **Phase 1 (CLI)**: 2-3 weeks → 1 hour
-- **Phase 2 (Portal)**: 1 hour → 5 minutes
-- **Phase 3 (Platform)**: 5 minutes → 30 seconds
-
 This README demonstrates the manual process to justify why automation is critical.
 
-<!-- ### ⚠️ The Hidden Complexity of MCP Deployment -->
-
-### What this tutorial doesn't show you:
-- **Time Investment**: This "simple" tutorial takes days for an experienced DevOps engineer to complete properly
-- **Prerequisite Knowledge**: Requires expertise in 15+ technologies (Docker, Kubernetes, Azure, Helm, Git, Python, YAML, networking, security, etc.)
-- **Hidden Costs**: Each deployment costs ~$200-500/month in Azure resources before optimization
-- **Maintenance Burden**: Expect 20+ hours/month maintaining certificates, updating packages, monitoring security
-- **Team Coordination**: Involves 3-5 different teams (DevOps, Security, Networking, Platform, Development)
-- **Error Recovery**: When something breaks (and it will), debugging requires deep K8s knowledge
-
-### The Real Timeline:
-- **Week 1**: Environment setup, permissions, networking configuration
-- **Week 2**: Security hardening, authentication, compliance setup  
-- **Week 3**: Monitoring, alerting, cost optimization
-- **Week 4**: Documentation, runbooks, team training
-- **Ongoing**: 20% of engineering time on maintenance
-
-### What typically goes wrong:
-1. **Certificate expires** → Production outage at 3 AM
-2. **Container vulnerabilities** → Emergency patching during sprint
-3. **Scaling issues** → AI agents timeout during demos
-4. **Cost explosion** → $5000 surprise bill from misconfigured autoscaling
-5. **Security breach** → Exposed secrets in logs discovered months later
-
-<!-- ## 📊 The Painful Reality: MCP vs Normal Containerized Apps -->
+### Why Manual Process Is So Painful:
+- **Time Investment**: This "simple" vibecoded tutorial could take a much longer time for an engineer to configure and complete manually
+- **Prerequisite Knowledge**: Requires expertise in multiple technologies (Docker, Kubernetes, Azure, Helm, Git, Python, YAML, networking, security, etc.)
+- **Maintenance Burden**: Whether it is maintaining certificates, updating packages, monitoring security, it is not a "set and forget" task
+- **Team Coordination**: In real life, may need coordination among multiple different teams (DevOps, Security, Networking, Platform, Development)
+- **Error Recovery**: When something breaks, debugging requires proper K8s knowledge
 
 ### Complexity Comparison
 
@@ -1481,18 +1451,39 @@ export AKS_IDENTITY_CLIENT_ID=$(az aks show \
   --name $AKS_NAME \
   --query identityProfile.kubeletidentity.clientId -o tsv)
 
+# Create the Key Vault (if you need it for secrets)
+echo "Creating Key Vault..."
+az keyvault create \
+  --name $KEY_VAULT_NAME \
+  --resource-group $RG_NAME \
+  --location $LOCATION \
+  --sku standard
+
+echo "Key Vault created: $KEY_VAULT_NAME"
+
 # Assign necessary roles to the managed identity
 # For Key Vault access
 az keyvault set-policy \
   --name $KEY_VAULT_NAME \
   --object-id $AKS_IDENTITY_CLIENT_ID \
-  --secret-permissions get list
+  --secret-permissions get list \
+  --resource-group $RG_NAME
 
 # For ACR pull
 az role assignment create \
   --assignee $AKS_IDENTITY_CLIENT_ID \
   --role "AcrPull" \
   --scope $(az acr show --name $ACR_NAME --query id -o tsv)
+
+# Verify role assignments
+echo "Verifying role assignments..."
+az role assignment list \
+  --assignee $AKS_IDENTITY_CLIENT_ID \
+  --output table
+
+# Verify ACR access
+echo "Testing ACR access..."
+az acr login --name $ACR_NAME --resource-group $RG_NAME
 ```
 
 #### Why Federated Credentials are Better for Corporate Environments
@@ -1744,6 +1735,16 @@ spec:
 ### Step 5: Apply TLS configuration
 
 ```bash
+
+# Wait for NGINX ingress controller to be ready
+kubectl wait --for=condition=ready pod \
+  -l app.kubernetes.io/component=controller \
+  -n ingress-nginx \
+  --timeout=300s
+
+# Verify admission webhook is available
+kubectl get endpoints -n ingress-nginx ingress-nginx-controller-admission
+
 # Apply the issuer
 kubectl apply -f k8s/tls-issuer.yaml
 
